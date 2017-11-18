@@ -2,7 +2,7 @@ from distutils.core import setup
 
 setup(
     name='raspberrypi_utils',
-    version='0.1',
+    version='0.1.0',
     packages=['raspberrypi_utils'],
     url='',
     license='',
