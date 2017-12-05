@@ -7,6 +7,7 @@ import RPi.GPIO as GPIO
 class DigitalOutputDevice(object):
     def __init__(self, pin, initial=GPIO.LOW):
         self.pin = pin
+        GPIO.setmode(GPIO.BCM)
         GPIO.setup(pin, GPIO.OUT, initial=initial)
 
     def on(self):
@@ -57,6 +58,7 @@ class LED(ThreadedDigitalOutputDevice):
         super(LED, self).off()
 
     def _run(self):
+        GPIO.setmode(GPIO.BCM)
         while not self.stop_event.is_set():
             self.on()
             self.stop_event.wait(self.on_seconds)
@@ -69,9 +71,12 @@ class Buzzer(ThreadedDigitalOutputDevice):
         super(Buzzer, self).__init__(pin, initial=GPIO.LOW)
         self.freq = freq
         self.quiet_hours = quiet_hours
-        self.buzzer = GPIO.PWM(self.pin, self.freq)
+        GPIO.output(self.pin, GPIO.LOW)
+        self.buzzer = None
 
     def is_quiet_hours(self):
+        if self.quiet_hours is None:
+            return False
         hour = now('US/Eastern').hour
         if self.quiet_hours[1] > self.quiet_hours[0]:
             return self.quiet_hours[0] < hour < self.quiet_hours[1]
@@ -84,6 +89,7 @@ class Buzzer(ThreadedDigitalOutputDevice):
         super(Buzzer, self).start()
 
     def _run(self):
+        self.buzzer = GPIO.PWM(self.pin, self.freq)
         self.buzzer.start(50)
         while not self.stop_event.is_set():
             self.buzzer.ChangeFrequency(self.freq)
@@ -91,3 +97,4 @@ class Buzzer(ThreadedDigitalOutputDevice):
             self.buzzer.ChangeFrequency(1)
             self.stop_event.wait(0.2)
         self.buzzer.stop()
+        self.buzzer = None
