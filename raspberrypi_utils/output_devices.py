@@ -1,3 +1,4 @@
+from abc import ABCMeta, abstractmethod
 from threading import Thread, Event
 
 from arrow import now
@@ -5,6 +6,8 @@ import RPi.GPIO as GPIO
 
 
 class DigitalOutputDevice(object):
+    __metaclass__ = ABCMeta
+
     def __init__(self, pin, initial=GPIO.LOW):
         self.pin = pin
         GPIO.setmode(GPIO.BCM)
@@ -18,22 +21,32 @@ class DigitalOutputDevice(object):
 
 
 class ThreadedDigitalOutputDevice(DigitalOutputDevice):
+    __metaclass__ = ABCMeta
+
     def __init__(self, pin, initial=GPIO.LOW):
         super(ThreadedDigitalOutputDevice, self).__init__(pin, initial=initial)
         self.stop_event = Event()
+        self.on_after_stop = False
         self.thread = None
 
     def start(self):
-        self.thread = Thread(target=self._run)
+        if self.thread and self.thread.is_alive:
+            return
         if self.stop_event.isSet():
             self.stop_event.clear()
+        self.thread = Thread(target=self._run)
         self.thread.start()
 
-    def stop(self):
-        if not self.stop_event.isSet():
+    def stop(self, on_after_stop=False):
+        if self.is_running() and not self.stop_event.isSet():
+            self.on_after_stop = on_after_stop
             self.stop_event.set()
-        self.thread = None
+            self.thread = None
 
+    def is_running(self):
+        return self.thread and self.thread.is_alive
+
+    @abstractmethod
     def _run(self):
         pass
 
@@ -44,26 +57,37 @@ class LED(ThreadedDigitalOutputDevice):
         self.off_seconds = None
         super(LED, self).__init__(pin, initial=initial)
 
+    def is_flashing(self):
+        self.is_running()
+
     def flash(self, on_seconds=0.25, off_seconds=0.25):
         self.on_seconds = on_seconds
         self.off_seconds = off_seconds
         self.start()
 
-    def stop_flash(self):
-        self.stop()
+    def stop_flash(self, on_after_stop=False):
+        self.stop(on_after_stop=on_after_stop)
 
-    def off(self, stop_flashing=True):
-        if stop_flashing:
-            self.stop_flash()
+    def on(self):
+        self.stop_flash(on_after_stop=True)
+        super(LED, self).on()
+
+    def off(self):
+        self.stop_flash(on_after_stop=False)
         super(LED, self).off()
 
     def _run(self):
         GPIO.setmode(GPIO.BCM)
         while not self.stop_event.is_set():
-            self.on()
+            super(LED, self).on()
             self.stop_event.wait(self.on_seconds)
-            self.off(stop_flashing=False)
+            super(LED, self).off()
             self.stop_event.wait(self.off_seconds)
+        self.stop_event.clear()
+        if self.on_after_stop:
+            super(LED, self).on()
+        else:
+            super(LED, self).off()
 
 
 class Buzzer(ThreadedDigitalOutputDevice):
@@ -96,5 +120,6 @@ class Buzzer(ThreadedDigitalOutputDevice):
             self.stop_event.wait(1)
             self.buzzer.ChangeFrequency(1)
             self.stop_event.wait(0.2)
+        self.stop_event.clear()
         self.buzzer.stop()
         self.buzzer = None

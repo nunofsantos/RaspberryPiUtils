@@ -1,22 +1,40 @@
+from abc import ABCMeta, abstractmethod
+import logging
 from threading import Thread
+from time import sleep
 
-from arrow import now
 from LIS3DH import LIS3DH
 import RPi.GPIO as GPIO
+from yunomi import Meter
+
+
+log = logging.getLogger(__name__)
 
 
 class ThreadedDigitalInputDevice(object):
-    def __init__(self, immediate_callback, threshold_callback=None, threshold_seconds=0):
+    __metaclass__ = ABCMeta
+
+    def __init__(self, immediate_callback=None, threshold_callback=None, threshold_seconds=0):
         self.immediate_callback = immediate_callback
         self.threshold_callback = threshold_callback
         self.threshold_seconds = threshold_seconds
         self.thread = Thread(target=self.run).start()
 
+    @abstractmethod
     def run(self):
         pass
 
+    @abstractmethod
     def read(self):
         pass
+
+    def notify_immediate(self, *args):
+        if self.immediate_callback:
+            self.immediate_callback(*args)
+
+    def notify_threshold(self, *args):
+        if self.threshold_callback:
+            self.threshold_callback(*args)
 
 
 class Button(ThreadedDigitalInputDevice):
@@ -32,40 +50,45 @@ class Button(ThreadedDigitalInputDevice):
     def run(self):
         while True:
             GPIO.wait_for_edge(self.pin, GPIO.RISING if self.pull_up_down == GPIO.PUD_DOWN else GPIO.FALLING)
-            self.immediate_callback()
+            self.notify_immediate()
             if not GPIO.wait_for_edge(self.pin, GPIO.FALLING if self.pull_up_down == GPIO.PUD_DOWN else GPIO.RISING,
                                       timeout=self.threshold_seconds * 1000):
-                self.threshold_callback()
+                self.notify_threshold()
 
 
 class VibrationSensor(ThreadedDigitalInputDevice):
-    def __init__(self, change_callback, address=0x18, bus=1, sensitivity=1, threshold_seconds=5*60,
-                 steady_callback=None):
+    def __init__(self, address=0x18, bus=1,
+                 sensitivity=1, threshold_per_minute=1,
+                 vibration_callback=None, steady_vibration_callback=None):
         GPIO.setmode(GPIO.BCM)
+        self.meter = Meter()
         self.sensitivity = sensitivity
-        self.vibrating = False
-        self.last_change_timestamp = None
-        self.steady_notification_sent = False
+        self.threshold_per_minute = threshold_per_minute
         self.sensor = LIS3DH(address=address, bus=bus)
         super(VibrationSensor, self).__init__(
-            change_callback,
-            steady_callback,
-            threshold_seconds
+            vibration_callback,
+            steady_vibration_callback
         )
 
     def read(self):
-        return any(True for val in [self.sensor.get_x(), self.sensor.get_y(), self.sensor.get_z()]
-                   if val > self.sensitivity or val < -self.sensitivity)
+        rate = self.meter.get_one_minute_rate()
+        log.debug('Rate: {:.4f}'.format(rate))
+        if rate > self.threshold_per_minute:
+            self.notify_threshold(rate)
+        else:
+            self.notify_threshold(rate)
+        return rate
+
+    def reset(self):
+        self.meter = Meter()
 
     def run(self):
         while True:
-            reading = self.read()
-            if reading != self.vibrating:
-                self.vibrating = reading
-                self.last_change_timestamp = now()
-                self.steady_notification_sent = False
-                self.immediate_callback(reading)
-            elif (not self.steady_notification_sent
-                  and now() > self.last_change_timestamp.shift(seconds=self.threshold_seconds)):
-                self.threshold_callback(reading)
-                self.steady_notification_sent = True
+            if any(True for val in [self.sensor.get_x(), self.sensor.get_y(), self.sensor.get_z()]
+                   if val > self.sensitivity or val < -self.sensitivity):
+                self.meter.mark()
+                self.notify_immediate(True)
+            else:
+                self.notify_immediate(False)
+            self.read()
+            sleep(0.5)
