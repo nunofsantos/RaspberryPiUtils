@@ -1,14 +1,10 @@
 from abc import ABCMeta, abstractmethod
-import logging
 from threading import Thread
 from time import sleep
 
 from LIS3DH import LIS3DH
 import RPi.GPIO as GPIO
 from yunomi import Meter
-
-
-log = logging.getLogger(__name__)
 
 
 class ThreadedDigitalInputDevice(object):
@@ -57,11 +53,12 @@ class Button(ThreadedDigitalInputDevice):
 
 
 class VibrationSensor(ThreadedDigitalInputDevice):
-    def __init__(self, address=0x18, bus=1,
-                 sensitivity=1, threshold_per_minute=1,
+    def __init__(self, address=0x18, bus=1, frequency_seconds=1,
+                 sensitivity=(1, 0.1, 0.1), threshold_per_minute=1,
                  vibration_callback=None, steady_vibration_callback=None):
         GPIO.setmode(GPIO.BCM)
         self.meter = Meter()
+        self.frequency_seconds = frequency_seconds
         self.sensitivity = sensitivity
         self.threshold_per_minute = threshold_per_minute
         self.sensor = LIS3DH(address=address, bus=bus)
@@ -72,10 +69,7 @@ class VibrationSensor(ThreadedDigitalInputDevice):
 
     def read(self):
         rate = self.meter.get_one_minute_rate()
-        log.debug('Rate: {:.4f}'.format(rate))
         if rate > self.threshold_per_minute:
-            self.notify_threshold(rate)
-        else:
             self.notify_threshold(rate)
         return rate
 
@@ -84,11 +78,11 @@ class VibrationSensor(ThreadedDigitalInputDevice):
 
     def run(self):
         while True:
-            if any(True for val in [self.sensor.get_x(), self.sensor.get_y(), self.sensor.get_z()]
-                   if val > self.sensitivity or val < -self.sensitivity):
+            readings = (self.sensor.get_x(), self.sensor.get_y(), self.sensor.get_z())
+            if any(True for i in xrange(3) if abs(readings[i]) > self.sensitivity[i]):
                 self.meter.mark()
                 self.notify_immediate(True)
             else:
                 self.notify_immediate(False)
             self.read()
-            sleep(0.5)
+            sleep(self.frequency_seconds)
