@@ -8,23 +8,24 @@ import RPi.GPIO as GPIO
 class DigitalOutputDevice(object):
     __metaclass__ = ABCMeta
 
-    def __init__(self, pin, initial=GPIO.LOW):
+    def __init__(self, pin, initial_on=False, on_high_logic=True):
         self.pin = pin
+        self.on_high_logic = on_high_logic
         GPIO.setmode(GPIO.BCM)
-        GPIO.setup(pin, GPIO.OUT, initial=initial)
+        GPIO.setup(pin, GPIO.OUT, initial=GPIO.HIGH if initial_on and on_high_logic else GPIO.LOW)
 
     def on(self):
-        GPIO.output(self.pin, GPIO.HIGH)
+        GPIO.output(self.pin, GPIO.HIGH if self.on_high_logic else GPIO.LOW)
 
     def off(self):
-        GPIO.output(self.pin, GPIO.LOW)
+        GPIO.output(self.pin, GPIO.LOW if self.on_high_logic else GPIO.HIGH)
 
 
 class ThreadedDigitalOutputDevice(DigitalOutputDevice):
     __metaclass__ = ABCMeta
 
-    def __init__(self, pin, initial=GPIO.LOW):
-        super(ThreadedDigitalOutputDevice, self).__init__(pin, initial=initial)
+    def __init__(self, pin, initial_on=False, on_high_logic=True):
+        super(ThreadedDigitalOutputDevice, self).__init__(pin, initial_on=initial_on, on_high_logic=on_high_logic)
         self.stop_event = Event()
         self.on_after_stop = False
         self.thread = None
@@ -52,10 +53,10 @@ class ThreadedDigitalOutputDevice(DigitalOutputDevice):
 
 
 class LED(ThreadedDigitalOutputDevice):
-    def __init__(self, pin, initial=GPIO.LOW):
+    def __init__(self, pin, initial_on=False, on_high_logic=True):
         self.on_seconds = None
         self.off_seconds = None
-        super(LED, self).__init__(pin, initial=initial)
+        super(LED, self).__init__(pin, initial_on=initial_on, on_high_logic=on_high_logic)
 
     def is_flashing(self):
         self.is_running()
@@ -91,11 +92,10 @@ class LED(ThreadedDigitalOutputDevice):
 
 
 class Buzzer(ThreadedDigitalOutputDevice):
-    def __init__(self, pin, freq, quiet_hours):
-        super(Buzzer, self).__init__(pin, initial=GPIO.LOW)
+    def __init__(self, pin, freq, quiet_hours, initial_on=False, on_high_logic=True):
+        super(Buzzer, self).__init__(pin, initial_on=initial_on, on_high_logic=on_high_logic)
         self.freq = freq
         self.quiet_hours = quiet_hours
-        GPIO.output(self.pin, GPIO.LOW)
         self.buzzer = None
 
     def is_quiet_hours(self):
