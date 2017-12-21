@@ -43,7 +43,11 @@ class Button(ThreadedDigitalInputDevice):
         self.pin = pin
         self.pull_up_down = pull_up_down
         GPIO.setup(pin, GPIO.IN, pull_up_down=pull_up_down)
-        super(Button, self).__init__(pressed_callback, held_callback, hold_seconds)
+        super(Button, self).__init__(
+            immediate_callback=pressed_callback,
+            threshold_callback=held_callback,
+            threshold_seconds=hold_seconds
+        )
 
     def read(self):
         return GPIO.input(self.pin)
@@ -51,11 +55,14 @@ class Button(ThreadedDigitalInputDevice):
     def run(self):
         while True:
             GPIO.wait_for_edge(self.pin, GPIO.RISING if self.pull_up_down == GPIO.PUD_DOWN else GPIO.FALLING)
+            log.debug('Button pressed')
             self.notify_immediate()
             if not GPIO.wait_for_edge(self.pin, GPIO.FALLING if self.pull_up_down == GPIO.PUD_DOWN else GPIO.RISING,
                                       timeout=self.threshold_seconds * 1000):
+                log.debug('Button held')
                 self.notify_threshold()
-
+            else:
+                log.debug('Button released')
 
 class VibrationSensor(ThreadedDigitalInputDevice):
     def __init__(self, address=0x18, bus=1, frequency_seconds=1,
