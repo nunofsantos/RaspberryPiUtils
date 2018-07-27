@@ -36,7 +36,7 @@ class ReadConfigMixin(object):
             'STR': lambda x: str(x),
             'INT': lambda x: int(x),
             'FLOAT': lambda x: float(x),
-            'BOOL': lambda x: bool(x),
+            'BOOL': lambda x: x.lower() == 'true',
             'STRLIST': lambda x: (
                 [elem.strip() for elem in value.strip('[], ').split(',')]
                 if ',' in x

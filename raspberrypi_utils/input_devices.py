@@ -64,6 +64,7 @@ class Button(ThreadedDigitalInputDevice):
             else:
                 log.debug('Button released')
 
+
 class VibrationSensor(ThreadedDigitalInputDevice):
     def __init__(self, address=0x18, bus=1, frequency_seconds=1,
                  sensitivity=(0.05, 0.05, 0.05), auto_calibrate=True, auto_sensitivity=1.0,
@@ -129,3 +130,36 @@ class VibrationSensor(ThreadedDigitalInputDevice):
                 self.notify_immediate(False)
             self.read()
             sleep(self.frequency_seconds)
+
+
+class LightSensor(ThreadedDigitalInputDevice):
+    def __init__(self, pin, light_callback, on_threshold=500, frequency=10):
+        self.pin = pin
+        self.on_threshold = on_threshold
+        self.frequency = frequency
+        self.is_on = None
+        GPIO.setup(pin, GPIO.OUT)
+        super(LightSensor, self).__init__(
+            immediate_callback=light_callback,
+        )
+
+    def read(self):
+        # based on https://learn.adafruit.com/basic-resistor-sensor-reading-on-raspberry-pi/basic-photocell-reading
+        GPIO.setup(self.pin, GPIO.OUT)
+        GPIO.output(self.pin, GPIO.LOW)
+        sleep(0.1)
+        GPIO.setup(self.pin, GPIO.IN)
+
+        reading = 0
+        while (GPIO.input(self.pin) == GPIO.LOW):
+            reading += 1
+        return reading
+
+    def run(self):
+        while True:
+            is_on_now = self.read() <= self.on_threshold
+            if self.is_on is None or is_on_now != self.is_on:
+                self.is_on = is_on_now
+                log.debug('Light turned {}'.format('on' if self.is_on else 'off'))
+                self.notify_immediate(self.is_on)
+            sleep(self.frequency)
